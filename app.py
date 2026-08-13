@@ -9,9 +9,24 @@ st.markdown("Adjust the Abaqus contact parameters to match the surrogate FEA mod
 
 # --- Sidebar Inputs ---
 st.sidebar.header("Abaqus Contact Parameters")
-mu_static = st.sidebar.slider("Static Friction (mu at slip=1)", 0.1, 1.0, 0.8, 0.05)
-mu_kin1 = st.sidebar.slider("Kinetic Friction 1 (mu at slip=2)", 0.1, 1.0, 0.6, 0.05)
-mu_kin2 = st.sidebar.slider("Kinetic Friction 2 (mu at slip=3)", 0.1, 1.0, 0.3, 0.05)
+
+# Toggle between Single and Variable Friction logic
+friction_mode = st.sidebar.radio(
+    "Friction Model Logic",
+    ["Single (Constant) Friction", "Variable (Decay) Friction"]
+)
+
+# Dynamically display sliders based on the selected mode
+if friction_mode == "Single (Constant) Friction":
+    mu_constant = st.sidebar.slider("Constant Friction Coefficient", 0.1, 1.0, 0.4, 0.05)
+    mu_static = mu_constant
+    mu_kin1 = mu_constant
+    mu_kin2 = mu_constant
+else:
+    mu_static = st.sidebar.slider("Static Friction (mu at slip=1)", 0.1, 1.0, 0.8, 0.05)
+    mu_kin1 = st.sidebar.slider("Kinetic Friction 1 (mu at slip=2)", 0.1, 1.0, 0.6, 0.05)
+    mu_kin2 = st.sidebar.slider("Kinetic Friction 2 (mu at slip=3)", 0.1, 1.0, 0.3, 0.05)
+
 slip_tol = st.sidebar.slider("Slip Tolerance", 0.001, 0.100, 0.020, 0.001)
 
 # --- Test Data (TES) ---
@@ -22,7 +37,7 @@ tes_moment = [
 ]
 
 # --- Surrogate FEA Model ---
-def calculate_surrogate_fea(theta_array, mu_s, mu_k1, mu_k2, tol):
+def calculate_surrogate_fea(theta_array, mode, mu_s, mu_k1, mu_k2, tol):
     """
     Approximates Abaqus implicit solver torsional moment response 
     based on friction decay and slip tolerance penalties.
@@ -33,15 +48,19 @@ def calculate_surrogate_fea(theta_array, mu_s, mu_k1, mu_k2, tol):
     penalty_stiffness = 3000 * (1 - (tol * 5)) 
     
     for i, t in enumerate(theta_array):
-        # Model friction decay as rotation (slip proxy) increases
-        if t <= 5:
+        # Apply the selected friction logic
+        if mode == "Single (Constant) Friction":
             current_mu = mu_s
-        elif t <= 12:
-            # Linear decay from static to first kinetic stage
-            current_mu = mu_s - (mu_s - mu_k1) * ((t - 5) / 7)
         else:
-            # Linear decay from first to second kinetic stage
-            current_mu = mu_k1 - (mu_k1 - mu_k2) * ((t - 12) / 6)
+            # Model friction decay as rotation (slip proxy) increases
+            if t <= 5:
+                current_mu = mu_s
+            elif t <= 12:
+                # Linear decay from static to first kinetic stage
+                current_mu = mu_s - (mu_s - mu_k1) * ((t - 5) / 7)
+            else:
+                # Linear decay from first to second kinetic stage
+                current_mu = mu_k1 - (mu_k1 - mu_k2) * ((t - 12) / 6)
             
         # Theoretical elastic moment (stick phase)
         m_elastic = penalty_stiffness * t
@@ -61,7 +80,7 @@ def calculate_surrogate_fea(theta_array, mu_s, mu_k1, mu_k2, tol):
     return fea_moment
 
 # Generate FEA curve based on slider inputs
-fea_moment_calculated = calculate_surrogate_fea(degrees, mu_static, mu_kin1, mu_kin2, slip_tol)
+fea_moment_calculated = calculate_surrogate_fea(degrees, friction_mode, mu_static, mu_kin1, mu_kin2, slip_tol)
 
 # --- Data Compilation and Plotting ---
 df_plot = pd.DataFrame({
